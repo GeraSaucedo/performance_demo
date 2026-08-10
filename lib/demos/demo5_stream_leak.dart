@@ -78,18 +78,25 @@ class LiveNotifications extends StatefulWidget {
 
 class _LiveNotificationsState extends State<LiveNotifications> {
   int _lastEvent = 0;
+  // Store the subscription (not the stream) so it can be cancelled.
+  StreamSubscription<int>? _sub;
 
   @override
   void initState() {
     super.initState();
-    // The subscription is neither stored nor cancelled: its reference is lost
-    // but the global StreamController keeps it active.
-    GlobalBus.instance.events.stream.listen((value) {
+    // .listen(...) returns the StreamSubscription: that is what gets cancelled.
+    _sub = GlobalBus.instance.events.stream.listen((value) {
       if (mounted) setState(() => _lastEvent = value);
     });
   }
 
-  // Default dispose(): does NOT cancel the subscription.
+  @override
+  void dispose() {
+    // Cancelling the subscription disconnects the callback from the global
+    // StreamController, breaking the retention chain to this State.
+    _sub?.cancel();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {

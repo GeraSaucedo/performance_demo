@@ -16,19 +16,22 @@ class Demo1Rebuilds extends StatefulWidget {
 
 class _Demo1RebuildsState extends State<Demo1Rebuilds> {
   Timer? _timer;
-  int _value = 0;
+  // The changing value lives in its own ValueNotifier so only the widget that
+  // depends on it rebuilds — not the whole screen (no setState at the root).
+  final _value = ValueNotifier<int>(0);
 
   @override
   void initState() {
     super.initState();
     _timer = Timer.periodic(const Duration(milliseconds: 500), (_) {
-      setState(() => _value++);
+      _value.value++;
     });
   }
 
   @override
   void dispose() {
     _timer?.cancel();
+    _value.dispose();
     super.dispose();
   }
 
@@ -40,15 +43,20 @@ class _Demo1RebuildsState extends State<Demo1Rebuilds> {
         children: [
           Padding(
             padding: const EdgeInsets.all(16),
-            child: Text(
-              'Value: $_value',
-              style: Theme.of(context).textTheme.headlineMedium,
+            // Only this builder reacts to the ticker; the rest of the tree is
+            // left untouched on each tick.
+            child: ValueListenableBuilder<int>(
+              valueListenable: _value,
+              builder: (context, value, child) => Text(
+                'Value: $value',
+                style: Theme.of(context).textTheme.headlineMedium,
+              ),
             ),
           ),
           const Divider(height: 1),
           Expanded(
-            // This grid does not depend on `_value`, but it is rebuilt in full
-            // on every tick because the setState is at the root of the screen.
+            // The grid no longer rebuilds on every tick: there is no setState at
+            // the root, so Flutter never revisits this subtree.
             child: GridView.count(
               crossAxisCount: 3,
               padding: const EdgeInsets.all(8),

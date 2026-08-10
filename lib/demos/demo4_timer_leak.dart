@@ -73,17 +73,24 @@ class LeakyClock extends StatefulWidget {
 
 class _LeakyClockState extends State<LeakyClock> {
   int _seconds = 0;
+  Timer? _timer;
 
   @override
   void initState() {
     super.initState();
-    // Stored in a local variable: nothing ever cancels it.
-    Timer.periodic(const Duration(seconds: 1), (_) {
+    // Keep the reference so it can be cancelled in dispose().
+    _timer = Timer.periodic(const Duration(seconds: 1), (_) {
       if (mounted) setState(() => _seconds++);
     });
   }
 
-  // dispose() uses the default one: it does NOT cancel the timer.
+  @override
+  void dispose() {
+    // Cancelling the timer breaks the retention chain: it leaves the internal
+    // timer heap, the closure releases the State, and the GC can collect it.
+    _timer?.cancel();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {

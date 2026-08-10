@@ -94,7 +94,15 @@ class _PulsingCardState extends State<PulsingCard>
     // Does nothing visible, but keeps a reference to this State.
   }
 
-  // Default dispose(): does NOT call _controller.dispose() nor removeListener.
+  @override
+  void dispose() {
+    // Two independent cleanups: remove OUR listener from the global notifier
+    // (we don't close it, it's shared) and dispose the controller (that one is
+    // ours to own).
+    GlobalBus.instance.ticker.removeListener(_onTick);
+    _controller.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
