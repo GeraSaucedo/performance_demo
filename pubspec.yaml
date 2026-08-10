@@ -1,0 +1,19 @@
+name: performance_demo
+description: "A Flutter DevTools training playground: hands-on demos of real performance/memory problems (excessive rebuilds, heavy build work, unbounded lists, timer/stream/animation leaks) plus benign false positives to practice knowing when NOT to optimize."
+publish_to: 'none'
+version: 0.1.0
+
+environment:
+  sdk: ^3.9.0
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^5.0.0
+
+flutter:
+  uses-material-design: true
