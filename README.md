@@ -21,6 +21,36 @@ There are **two kinds** of cases:
 
 ## How to run
 
+### Versions
+
+Built and verified with:
+
+| Tool | Version | How to check |
+|---|---|---|
+| **Flutter** | 3.44.9 (stable) | `flutter --version` |
+| **Dart** | 3.12.2 | bundled with the Flutter SDK |
+| **DevTools** | 2.57.0 | bundled with the Flutter SDK |
+| **JDK** | 17 | `java -version` — required by AGP 8.11 |
+
+The declared minimum is **Dart 3.10** (`environment.sdk` in
+[pubspec.yaml](pubspec.yaml)); below that `flutter pub get` refuses to resolve.
+Note you don't install Dart separately — it ships inside the Flutter SDK, so
+what really picks your Dart version is your Flutter version. `flutter --version`
+prints both.
+
+```bash
+flutter --version     # see what you have
+flutter upgrade       # move to stable 3.44.9 or newer
+flutter pub get
+```
+
+The Android toolchain is pinned in the repo — nothing to install, but if you hit
+Gradle errors these are the versions that work: **Gradle 8.14.3** (wrapper),
+**AGP 8.11.1**, **Kotlin 2.2.20**. AGP 8.11 needs JDK 17; on JDK 11 the Android
+build fails. Web, desktop and `flutter test` don't need any of this.
+
+### Running it
+
 You need the **Flutter** extension (with Dart) in your IDE. There are three
 configurations in [.vscode/launch.json](.vscode/launch.json):
 
