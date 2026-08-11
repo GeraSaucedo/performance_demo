@@ -3,6 +3,11 @@
 > ⚠️ **Spoilers.** This file reveals the problem in each demo. Use it only if you
 > get stuck: first try to spot the cause yourself with DevTools.
 
+> **Scope:** this file covers **Demos 1–6**, the real defects. Demos 7–9 are the
+> deliberate **false positives** — they look broken in DevTools and are healthy by
+> design, so there is no fix to document. They're explained in
+> [README.md](README.md#false-positives-demos-79).
+
 ## How to open DevTools
 
 1. Run the app. For memory, **profile mode** is preferable:
@@ -11,12 +16,16 @@
    ```
 2. The console prints a **DevTools** URL; open it (or use your IDE's button).
 3. Views we'll use:
-   - **Performance** → frame timeline + "Track widget rebuilds".
+   - **Performance** → frame timeline, plus the **Rebuild Stats** tab with
+     **Count widget builds** ticked.
    - **CPU Profiler** → where CPU time is spent.
    - **Memory** → heap snapshots, *diff*, and instance counts.
 
-> Note: "Track widget rebuilds" and some counters only work in **debug**. Time
-> profiling (jank/CPU) and memory profiling are reliable in **profile**.
+> Note: **Count widget builds**, the Inspector, **Highlight Repaints** and
+> **Render Opacity layers** only exist in **debug** — the framework compiles those
+> flags out of profile builds. Time profiling (jank/CPU) and raster times are only
+> trustworthy in **profile**. So a raster investigation is two passes: profile for
+> *how much*, debug for *which widget*.
 
 ---
 
@@ -28,20 +37,38 @@
 with work even though nothing in it changes.
 
 **How to detect it:**
-- Performance → enable **"Track widget rebuilds"**. You'll see all 300
-  `MetricCard`s rebuild on every tick (the rebuild counter climbing).
-- In the timeline, each tick produces a frame with more UI work than needed.
+- Performance → **Rebuild Stats** tab → tick **Count widget builds**. `MetricCard`
+  (and its `Card`, `Icon`, `Text`) climb on every tick, while the widgets that
+  don't depend on the counter sit at 1.
+- Don't expect 300. `GridView` is lazy: only the cards currently on screen get a
+  `build()` call, so the count is a couple of dozen and depends on your viewport.
+  What *does* happen 300 times per tick is `List.generate` allocating 300 fresh
+  `MetricCard` objects — only the visible ones are built.
+- Don't confuse **Count widget builds** with **Trace widget builds** in the
+  *Enhance Tracing* dropdown: the first gives you the counts table, the second
+  adds per-widget `Build` events to the timeline. Both are debug-only.
 
 **Cause:** the `setState` is in `_Demo1RebuildsState`, the root of the screen,
 so Flutter rebuilds the entire subtree — including the `GridView` — even though
-only the counter text changed. The cards are also not `const`.
+only the counter text changed. On top of that, `List.generate` hands the grid a
+brand-new set of `MetricCard` instances on every build, so Flutter can't
+short-circuit any of them.
 
 **Fix:**
 - Isolate the state that changes: move the counter into its own small widget, or
   use a `ValueNotifier<int>` + `ValueListenableBuilder` that wraps only the
-  `Text`.
-- Make the grid and the cards `const` so Flutter skips them during rebuilds
-  (`const MetricCard(...)`, `const` constructor).
+  `Text`. This stops the parent from rebuilding at all.
+- Reuse the card instances so Flutter can skip them when a rebuild does happen.
+  Be precise about `const` here, because it's the usual wrong turn: giving
+  `MetricCard` a **const constructor** compiles fine and costs nothing, but it
+  buys you nothing either, because the **call site** can't be const —
+  `const MetricCard(index: i)` inside `List.generate` is an *"Invalid constant
+  value"* error, since `i` only exists at runtime. Hoist the list into a field
+  instead:
+  `late final List<Widget> _cards = List.generate(300, (i) => MetricCard(index: i));`
+  and pass `_cards` to the grid. (`const` is the special case of this same idea,
+  for when every argument *is* constant — see the `const Divider` and the
+  `const Text` in the AppBar, which already sit at 0 rebuilds per tick.)
 
 ---
 
@@ -159,8 +186,11 @@ StreamSubscription<int>? _sub;
 **How to detect it:**
 - Memory → snapshot → recycle → GC → snapshot → diff: `_PulsingCardState` (and
   its `AnimationController`s) pile up.
-- In **debug**, Flutter usually logs a warning that an `AnimationController` was
-  *garbage collected* without `dispose()` being called (or stayed retained).
+- In **debug** this leak is not silent: `SingleTickerProviderStateMixin.dispose()`
+  asserts that its `Ticker` is no longer active and throws
+  *"…was disposed with an active Ticker"* when it is. The check lives inside an
+  `assert`, so it is compiled out of profile and release builds — which is why the
+  same run is loud in debug and quiet in profile.
 
 **Cause:** two leaks in `_PulsingCardState.initState`:
 1. It creates an `AnimationController` (with `vsync: this` and `repeat`) that is

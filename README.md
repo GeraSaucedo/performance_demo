@@ -21,6 +21,36 @@ There are **two kinds** of cases:
 
 ## How to run
 
+### Versions
+
+Built and verified with:
+
+| Tool | Version | How to check |
+|---|---|---|
+| **Flutter** | 3.44.9 (stable) | `flutter --version` |
+| **Dart** | 3.12.2 | bundled with the Flutter SDK |
+| **DevTools** | 2.57.0 | bundled with the Flutter SDK |
+| **JDK** | 17 | `java -version` — required by AGP 8.11 |
+
+The declared minimum is **Dart 3.10** (`environment.sdk` in
+[pubspec.yaml](pubspec.yaml)); below that `flutter pub get` refuses to resolve.
+Note you don't install Dart separately — it ships inside the Flutter SDK, so
+what really picks your Dart version is your Flutter version. `flutter --version`
+prints both.
+
+```bash
+flutter --version     # see what you have
+flutter upgrade       # move to stable 3.44.9 or newer
+flutter pub get
+```
+
+The Android toolchain is pinned in the repo — nothing to install, but if you hit
+Gradle errors these are the versions that work: **Gradle 8.14.3** (wrapper),
+**AGP 8.11.1**, **Kotlin 2.2.20**. AGP 8.11 needs JDK 17; on JDK 11 the Android
+build fails. Web, desktop and `flutter test` don't need any of this.
+
+### Running it
+
 You need the **Flutter** extension (with Dart) in your IDE. There are three
 configurations in [.vscode/launch.json](.vscode/launch.json):
 
@@ -40,7 +70,7 @@ button).
 | Rebuilds, widget tree, repaints | **Debug** | The rebuild counter and the Inspector only exist in debug |
 | Jank, CPU, ms per frame | **Profile** | In debug the timings LIE (unoptimized) |
 | Memory / leaks | **Debug or Profile** | Leaks are representative in both |
-| Raster / GPU | **Profile + real device** | On an emulator GPU times are garbage |
+| Raster / GPU | **Profile + real device** | Emulator GPU times run inflated — read the pattern, not the numbers |
 
 > Rule: **Debug to inspect · Profile to measure · Release to ship.**
 
@@ -57,9 +87,9 @@ The cycle that repeats in every real case:
 
 | Problem type | Symptom | Right tool |
 |---|---|---|
-| Excessive rebuilds | `build()` runs when it doesn't need to | **Track widget rebuilds** (Performance) |
-| Heavy compute (UI/CPU) | high **Build** phase, jank on the UI thread | **CPU Profiler** (Bottom Up / Total Time) |
-| Compositing/painting (GPU) | high **Raster** phase, UI thread ~0 | **Frame Analysis** + **Highlight Repaints** |
+| Excessive rebuilds | `build()` runs when it doesn't need to | **Rebuild Stats** + *Count widget builds* (Performance, debug) |
+| Heavy compute (UI/CPU) | high **Build** phase, jank on the UI thread | **CPU Profiler** (Bottom Up / Self Time) |
+| Compositing/painting (GPU) | high **Raster** phase, UI thread ~0 | **Frame Analysis** (profile) + **Highlight Repaints** (debug) |
 | Memory leak | memory grows and never drops | **Memory → Diff Snapshots** + retaining path |
 
 **Demos 1–6** exercise this cycle. Their answers: [SOLUTIONS.md](SOLUTIONS.md).
@@ -139,12 +169,14 @@ leak either.)
 
 **How to reproduce it in DevTools:**
 1. Run in **profile mode**. Open Demo 9. Go to **Performance**.
-2. Watch the spinning animation: the frames graph should be **green/blue**
-   (smooth).
+2. Watch the spinning animation: the frames graph should be a steady run of short
+   **blue** bars (red is reserved for janky frames).
 3. Tap **"Reload data"** once. Watch the graph.
 
 **What you'll see:** **one** isolated red frame (the one-off compute of the
-reload), surrounded by nothing but healthy frames. The animation **does not
+reload), with the frames around it back inside the budget. The one immediately
+after it runs taller than its neighbours — that's the `setState` and re-layout
+landing — but it doesn't cross the jank threshold. The animation **does not
 stutter** before or after.
 
 **Why it is NOT a problem:** a **one-off** red frame, caused by a one-time
@@ -153,8 +185,9 @@ the **sustained** kind during interaction. Compare it with **Demo 2**, which
 stuttered on **every** keystroke — that *was* a problem. Chasing an isolated
 spike is wasted time.
 
-**How to confirm it:** look at the **average FPS**: it stays near 60 (or 120).
-The animation stays smooth. A lone red frame among dozens of green ones =
+**How to confirm it:** look at the **average frame rate**: it stays essentially at
+whatever your display's refresh rate is — 60, 90, 120. One spike averaged across a
+whole recording barely moves it. A lone red frame among dozens of healthy ones =
 healthy.
 
 > Rule: **sustained jank (many red frames in a row while you interact) =
@@ -174,16 +207,25 @@ healthy.
    drilling down; *high Self* → the time is spent right there.
 4. **Sustained jank vs isolated spike.** A lone red frame (GC, first frame,
    fling) isn't a problem. Health signal: average FPS near the target rate.
-5. **Raster is measured on a real device.** On an emulator GPU times are garbage
-   (5–10× slower). And **know when to stop**: if you've already removed the
+5. **Raster needs a real device.** Emulator GPU times run inflated — good enough
+   to see the *pattern* (raster dominating while the UI thread sits idle), wrong
+   for the absolute numbers, so confirm the magnitude on the hardware you
+   actually target. And **know when to stop**: if you've already removed the
    code-level causes and it won't drop further, you've hit the environment's
    floor.
-6. **Rebuild ≠ Repaint.** Rebuild = `build()` runs (fix it with `const` or by
-   isolating state). Repaint = pixels are redrawn (fix it with
+6. **Rebuild ≠ Repaint.** Rebuild = `build()` runs (fix it by isolating state and
+   by reusing instances). Repaint = pixels are redrawn (fix it with
    `RepaintBoundary`). A child rebuilds only if its parent rebuilds AND passes it
-   a new instance; a `const` widget is the same instance → it's skipped.
+   a new instance, so handing back the *same* instance skips the subtree. `const`
+   is the cheapest way to get that, but note the distinction: a `const`
+   *constructor* always compiles, while a `const` *invocation* needs every
+   argument to be a compile-time constant. So a widget built from runtime data
+   can never be a const **instance** — `const MetricCard(index: i)` inside a
+   `List.generate` is an "Invalid constant value" error, const constructor or
+   not. Hoist the instances into a field instead.
 7. **GC ≠ dispose.** `dispose` is called by Flutter when the widget is removed
-   (not by the GC); it always runs — the leak is missing the cleanup inside it.
+   (not by the GC), and you can count on it running — the leak is the cleanup
+   you left out of it.
    The GC only removes **unreachable** objects: if something long-lived
    references your `State`, the GC respects it → leak. Signature in the diff:
    `Released: 0`, `Delta: +N`.
