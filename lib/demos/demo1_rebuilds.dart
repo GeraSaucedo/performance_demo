@@ -63,8 +63,13 @@ class _Demo1RebuildsState extends State<Demo1Rebuilds> {
 
 /// A card with a bit of layout work. Non-const ON PURPOSE.
 class MetricCard extends StatelessWidget {
-  // Non-const ON PURPOSE for the rebuild demo (part of the fix is making it
-  // `const` so Flutter can skip it during rebuilds).
+  // Non-const ON PURPOSE for the rebuild demo. Be precise about what `const`
+  // can and can't do here: a `const` CONSTRUCTOR on this class compiles fine
+  // (that's what prefer_const_constructors_in_immutables asks for), but it buys
+  // nothing, because the call site can't be const — `const MetricCard(index: i)`
+  // is an "Invalid constant value" error since `i` only exists at runtime. What
+  // actually skips the subtree is handing back the SAME instances on every
+  // build: build the list once into a field. See SOLUTIONS.md, Demo 1.
   // ignore: prefer_const_constructors_in_immutables
   MetricCard({super.key, required this.index});
 
