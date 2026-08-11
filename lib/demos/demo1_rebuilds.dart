@@ -16,9 +16,19 @@ class Demo1Rebuilds extends StatefulWidget {
 
 class _Demo1RebuildsState extends State<Demo1Rebuilds> {
   Timer? _timer;
-  // The changing value lives in its own ValueNotifier so only the widget that
-  // depends on it rebuilds — not the whole screen (no setState at the root).
+  // Fix 1 — the changing value lives in its own ValueNotifier so only the widget
+  // that depends on it rebuilds, not the whole screen (no setState at the root).
   final _value = ValueNotifier<int>(0);
+
+  // Fix 2 — the cards are built ONCE and the same instances are handed back on
+  // every build. Flutter compares each new child against the mounted one; when
+  // it's the identical instance it skips that subtree entirely. `const` would do
+  // the same thing, but it can't be used here: `index` is a runtime value and a
+  // const constructor needs compile-time arguments.
+  late final List<Widget> _cards = List.generate(
+    300,
+    (i) => MetricCard(index: i),
+  );
 
   @override
   void initState() {
@@ -60,7 +70,7 @@ class _Demo1RebuildsState extends State<Demo1Rebuilds> {
             child: GridView.count(
               crossAxisCount: 3,
               padding: const EdgeInsets.all(8),
-              children: List.generate(300, (i) => MetricCard(index: i)),
+              children: _cards, // was List.generate(300, ...) inline
             ),
           ),
         ],
